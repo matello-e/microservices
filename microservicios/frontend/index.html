@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>TechStore — Tienda Electrónica</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet" />
+  <link href="style.css" rel="stylesheet"/>
+</head>
+<body>
+
+<header>
+  <div class="logo">Tech<span>Store</span></div>
+  <nav>
+    <button class="active" onclick="switchView('productos')">Productos</button>
+    <button onclick="switchView('agregar')">+ Agregar</button>
+    <button onclick="switchView('pedidos')">Mis Pedidos</button>
+    <button onclick="switchView('hacer-pedido')">Hacer Pedido</button>
+  </nav>
+</header>
+
+<main>
+
+  <!-- ── aqui se ven todos los productos guardados── -->
+  <div id="view-productos" class="view active">
+    <div class="hero">
+      <h1>Tecnología de <span>última generación</span></h1>
+      <p>Explora nuestro catálogo de productos. Precios actualizados en tiempo real.</p>
+      <button class="btn btn-primary btn-large" onclick="cargarProductos()">↻ Actualizar catálogo</button>
+    </div>
+
+    <div class="stats" id="stats-bar">
+      <div class="stat">
+        <div class="stat-label">Productos</div>
+        <div class="stat-value" id="stat-total">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Precio mínimo</div>
+        <div class="stat-value" id="stat-min">—</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Precio máximo</div>
+        <div class="stat-value" id="stat-max">—</div>
+      </div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">Catálogo</div>
+    </div>
+    <div id="productos-grid" class="grid">
+      <div class="loading"><div class="spinner"></div>Cargando productos...</div>
+    </div>
+  </div>
+
+  <!-- ── aqui se agg los productos ── -->
+  <div id="view-agregar" class="view">
+    <div class="section-header" style="margin-bottom:2rem">
+      <div class="section-title">Agregar producto</div>
+    </div>
+    <div class="form-card">
+      <h2>Nuevo producto</h2>
+      <div class="form-group">
+        <label>Nombre del producto</label>
+        <input type="text" id="nuevo-nombre" placeholder="Ej. Laptop Asus VivoBook 15" />
+      </div>
+      <div class="form-group">
+        <label>Precio (USD)</label>
+        <input type="number" id="nuevo-precio" placeholder="0.00" step="0.01" min="0" />
+      </div>
+      <button class="btn btn-primary btn-large" onclick="crearProducto()" style="width:100%; margin-top:0.5rem">
+        Guardar producto
+      </button>
+    </div>
+  </div>
+
+  <!-- ── aqui se hacen los pedidos ── -->
+  <div id="view-hacer-pedido" class="view">
+    <div class="section-header" style="margin-bottom:2rem">
+      <div class="section-title">Hacer un pedido</div>
+    </div>
+    <div class="form-card">
+      <h2>Nuevo pedido</h2>
+      <div class="form-group">
+        <label>Nombre del cliente</label>
+        <input type="text" id="pedido-cliente" placeholder="Nombre completo" />
+      </div>
+      <div class="form-group">
+        <label>Producto</label>
+        <select id="pedido-producto">
+          <option value="">— Selecciona un producto —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Cantidad</label>
+        <input type="number" id="pedido-cantidad" value="1" min="1" max="99" />
+      </div>
+      <button class="btn btn-orange btn-large" onclick="hacerPedido()" style="width:100%; margin-top:0.5rem">
+        ✓ Confirmar pedido
+      </button>
+    </div>
+  </div>
+
+  <!-- ── aqui puedes ver los pedidos ── -->
+  <div id="view-pedidos" class="view">
+    <div class="section-header" style="margin-bottom:2rem">
+      <div class="section-title">Mis Pedidos</div>
+      <button class="btn btn-outline" onclick="cargarPedidos()">↻ Actualizar</button>
+    </div>
+    <div id="pedidos-list" class="orders-list">
+      <div class="loading"><div class="spinner"></div>Cargando pedidos...</div>
+    </div>
+  </div>
+
+</main>
+
+<div id="toast"></div>
+
+<script>
+  const API = 'http://localhost:8080';
+  const ICONS = ['💻','🖥️','📱','🎧','⌨️','🖱️','📷','🔋','📺','🕹️'];
+  const iconFor = id => ICONS[(id - 1) % ICONS.length];
+
+  // barra de navegacion
+  function switchView(name) {
+    document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    document.getElementById('view-' + name).classList.add('active');
+    const idx = ['productos','agregar','pedidos','hacer-pedido'].indexOf(name);
+    document.querySelectorAll('nav button')[idx]?.classList.add('active');
+    if (name === 'productos')    cargarProductos();
+    if (name === 'pedidos')      cargarPedidos();
+    if (name === 'hacer-pedido') cargarSelectProductos();
+  }
+
+  function toast(msg, type = 'success') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `show ${type}`;
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => t.className = '', 3000);
+  }
+
+  // se obtienen los productos
+  let productosCache = [];
+
+  async function cargarProductos() {
+    const grid = document.getElementById('productos-grid');
+    grid.innerHTML = '<div class="loading"><div class="spinner"></div>Cargando productos...</div>';
+    try {
+      const res = await fetch(`${API}/api/productos`);
+      if (!res.ok) throw new Error('Error ' + res.status);
+      const productos = await res.json();
+      productosCache = productos;
+      renderProductos(productos);
+    } catch (e) {
+      grid.innerHTML = `<div class="empty">⚠️ No se pudo conectar con la API.<br><small style="opacity:.6">${e.message}</small></div>`;
+    }
+  }
+
+  function renderProductos(productos) {
+    const grid = document.getElementById('productos-grid');
+    if (!productos.length) {
+      document.getElementById('stat-total').textContent = '0';
+      document.getElementById('stat-min').textContent   = '—';
+      document.getElementById('stat-max').textContent   = '—';
+      grid.innerHTML = '<div class="empty">No hay productos registrados aún.</div>';
+      return;
+    }
+    const min = Math.min(...productos.map(p => p.precio));
+    const max = Math.max(...productos.map(p => p.precio));
+    document.getElementById('stat-total').textContent = productos.length;
+    document.getElementById('stat-min').textContent   = '$' + min.toFixed(0);
+    document.getElementById('stat-max').textContent   = '$' + max.toFixed(0);
+    grid.innerHTML = productos.map(p => `
+      <div class="product-card">
+        <div class="product-icon">${iconFor(p.id)}</div>
+        <div>
+          <div class="product-name">${escHtml(p.nombre)}</div>
+          <div class="product-id"># ${p.id}</div>
+        </div>
+        <div class="product-price">${p.precio.toFixed(2)}</div>
+        <div class="card-actions">
+          <button class="btn btn-primary" onclick="irHacerPedido(${p.id})">Pedir</button>
+          <button class="btn btn-danger" onclick="eliminarProducto(${p.id}, '${escHtml(p.nombre)}')">✕</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function crearProducto() {
+    const nombre = document.getElementById('nuevo-nombre').value.trim();
+    const precio = parseFloat(document.getElementById('nuevo-precio').value);
+    if (!nombre)                { toast('Ingresa un nombre', 'error'); return; }
+    if (isNaN(precio)||precio<0){ toast('Ingresa un precio válido', 'error'); return; }
+    try {
+      const res = await fetch(`${API}/api/productos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nombre, precio })
+      });
+      if (!res.ok) throw new Error('Error ' + res.status);
+      document.getElementById('nuevo-nombre').value = '';
+      document.getElementById('nuevo-precio').value = '';
+      toast('✓ Producto creado');
+      switchView('productos');
+    } catch { toast('Error al crear producto', 'error'); }
+  }
+
+  async function eliminarProducto(id, nombre) {
+    if (!confirm(`¿Eliminar "${nombre}"?\nLos pedidos activos serán cancelados.`)) return;
+    try {
+      await fetch(`${API}/api/pedidos/cancelar-por-producto/${id}`, { method: 'PUT' });
+      const res = await fetch(`${API}/api/productos/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      toast('Producto eliminado');
+      cargarProductos();
+    } catch { toast('Error al eliminar', 'error'); }
+  }
+
+  // aqui se hacen los pedidos
+  async function cargarSelectProductos() {
+    const sel = document.getElementById('pedido-producto');
+    sel.innerHTML = '<option value="">Cargando...</option>';
+    try {
+      const res = await fetch(`${API}/api/productos`);
+      const productos = await res.json();
+      sel.innerHTML = '<option value="">— Selecciona un producto —</option>' +
+        productos.map(p =>
+          `<option value="${p.id}" data-precio="${p.precio}">${escHtml(p.nombre)} — $${p.precio.toFixed(2)}</option>`
+        ).join('');
+    } catch {
+      sel.innerHTML = '<option value="">Error al cargar productos</option>';
+    }
+  }
+
+  async function hacerPedido() {
+    const clienteNombre = document.getElementById('pedido-cliente').value.trim();
+    const productoId    = parseInt(document.getElementById('pedido-producto').value);
+    const cantidad      = parseInt(document.getElementById('pedido-cantidad').value);
+    if (!clienteNombre)        { toast('Ingresa tu nombre', 'error'); return; }
+    if (!productoId)           { toast('Selecciona un producto', 'error'); return; }
+    if (!cantidad || cantidad<1){ toast('Cantidad inválida', 'error'); return; }
+    try {
+      const res = await fetch(`${API}/api/pedidos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clienteNombre, productoId, cantidad })
+      });
+      if (!res.ok) throw new Error('Error ' + res.status);
+      document.getElementById('pedido-cliente').value  = '';
+      document.getElementById('pedido-producto').value = '';
+      document.getElementById('pedido-cantidad').value = 1;
+      toast('✓ Pedido realizado con éxito');
+      switchView('pedidos');
+    } catch (e) { toast('Error al crear pedido: ' + e.message, 'error'); }
+  }
+
+  async function cargarPedidos() {
+    const list = document.getElementById('pedidos-list');
+    list.innerHTML = '<div class="loading"><div class="spinner"></div>Cargando pedidos...</div>';
+    try {
+      const [resPed, resProd] = await Promise.all([
+        fetch(`${API}/api/pedidos`),
+        fetch(`${API}/api/productos`)
+      ]);
+      const pedidos   = await resPed.json();
+      const productos = await resProd.json();
+      const pMap = {};
+      productos.forEach(p => pMap[p.id] = p);
+
+      if (!pedidos.length) {
+        list.innerHTML = '<div class="empty">No hay pedidos registrados.</div>';
+        return;
+      }
+
+      list.innerHTML = pedidos.map(p => {
+        const prod     = pMap[p.productoId];
+        const nombre   = prod ? escHtml(prod.nombre) : `Producto #${p.productoId}`;
+        const total    = prod ? (prod.precio * p.cantidad).toFixed(2) : null;
+        const cancelado = p.estado === 'CANCELADO';
+        const badgeClass = cancelado ? 'badge-cancel' : p.estado === 'PENDIENTE' ? 'badge-pending' : 'badge-done';
+        const badgeText  = cancelado ? '✕ Cancelado' : p.estado === 'PENDIENTE' ? '⏳ Pendiente' : '✓ Confirmado';
+        return `
+          <div class="order-card" style="${cancelado ? 'opacity:.55' : ''}">
+            <div class="order-left">
+              <div class="order-num">#${String(p.id).padStart(2,'0')}</div>
+              <div>
+                <div class="order-id">${escHtml(p.clienteNombre)}</div>
+                <div class="order-meta">
+                  📦 ${nombre} &nbsp;·&nbsp; Cantidad: ${p.cantidad}
+                  ${p.fecha ? ` &nbsp;·&nbsp; 📅 ${new Date(p.fecha).toLocaleDateString('es')}` : ''}
+                </div>
+              </div>
+            </div>
+            <div class="order-right">
+              <span class="badge ${badgeClass}">${badgeText}</span>
+              ${total ? `<div class="order-total">$${total}</div>` : ''}
+              ${!cancelado ? `<button class="btn btn-danger" style="padding:0.35rem 0.8rem;font-size:0.8rem" onclick="eliminarPedido(${p.id})">✕</button>` : ''}
+            </div>
+          </div>`;
+      }).join('');
+    } catch (e) {
+      list.innerHTML = `<div class="empty">⚠️ No se pudo cargar pedidos.<br><small>${e.message}</small></div>`;
+    }
+  }
+
+  async function eliminarPedido(id) {
+    if (!confirm('¿Eliminar este pedido?')) return;
+    try {
+      const res = await fetch(`${API}/api/pedidos/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
+      toast('Pedido eliminado');
+      cargarPedidos();
+    } catch { toast('Error al eliminar', 'error'); }
+  }
+
+  function irHacerPedido(productoId) {
+    switchView('hacer-pedido');
+    setTimeout(() => {
+      const sel = document.getElementById('pedido-producto');
+      if (sel.querySelector(`option[value="${productoId}"]`)) sel.value = productoId;
+    }, 400);
+  }
+
+  function escHtml(str) {
+    return String(str).replace(/[&<>"']/g, m =>
+      ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+  }
+
+  cargarProductos();
+</script>
+</body>
+</html>
